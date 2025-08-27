@@ -1,15 +1,16 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 #define sb_add(sb, c)\
 do{\
-    if(sb.capacity <= sb.count){\
-        if(sb.capacity == 0) sb.capacity = 64;\
-        sb.capacity *= 2;\
-        sb.data = realloc(sb.data, sb.capacity * sizeof(*sb.data));\
+    if(sb->capacity <= sb->count){\
+        if(sb->capacity == 0) sb->capacity = 64;\
+        sb->capacity *= 2;\
+        sb->data = realloc(sb->data, sb->capacity * sizeof(*sb->data));\
     }\
-    sb.data[sb.count++] = c;\
+    sb->data[sb->count++] = c;\
 } while (0);
 
 typedef struct IOFile {
@@ -25,6 +26,15 @@ typedef struct StringBuilder {
     size_t count;
 } StringBuilder;
 
+enum DOCELM {
+    ELM_TITLE,
+    ELM_SECTION,
+    ELM_PROPERTIES,
+    ELM_COUNT
+};
+
+const char* document_elements[] = {"#[title]", "#[section]", "#[prop]"};
+
 size_t get_file_size(FILE* fd){
     if(!fd) return 0;
     fseek(fd, 0, SEEK_END);
@@ -33,19 +43,22 @@ size_t get_file_size(FILE* fd){
     return res;
 }
 // todo pass sb as pointer
-int get_next_token(IOFile file, StringBuilder sb){
+int get_next_token(IOFile* file, StringBuilder* sb){
 
     //todo while loop doesn't detect #[ to exit
-    while (file.loc++ < file.size && !(file.loc+1 < file.size && file.content[file.loc] == '#' && file.content[file.loc+1] == '['));
-    if(file.loc >= file.size) return 0;
-
-    while(file.loc < file.size && file.content[file.loc] == ']'){
-        sb_add(sb, file.content[file.loc])
+    while (file->loc < file->size && !(file->loc+1 < file->size && file->content[file->loc] == '#' && file->content[file->loc+1] == '[')){
+        file->loc++;
     }
-    if(file.loc >= file.size) return 0;
+    if(file->loc >= file->size) return 0;
 
+    while(file->loc < file->size && file->content[file->loc] != ']'){
+        sb_add(sb, file->content[file->loc])
+        file->loc++;
+    }
+    if(file->loc >= file->size) return 0;
+    sb_add(sb, file->content[file->loc++]);
     sb_add(sb, '\0');
-    printf("string: %s\n", sb.data);
+    printf("token: %s\n", sb->data);
     return 1;
     
 
@@ -76,8 +89,12 @@ int main() {
     }
 
     StringBuilder sb = {0};
-    while(get_next_token(input, sb)){
+    while(get_next_token(&input, &sb)){
         // do stuff with token value in sb
+        if(strcmp(sb.data, document_elements[ELM_TITLE]) == 0){
+            printf("FOUND TITLE");
+            break;
+        }
     }
 
 }
