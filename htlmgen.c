@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
 #define sb_add(sb, c)\
 do{\
     if(sb->capacity <= sb->count){\
@@ -18,6 +17,7 @@ typedef struct IOFile {
     size_t size;
     size_t loc;
     FILE* fd;
+    char future_token_type;
 } IOFile;
 
 typedef struct StringBuilder {
@@ -26,14 +26,21 @@ typedef struct StringBuilder {
     size_t count;
 } StringBuilder;
 
-enum DOCELM {
-    ELM_TITLE,
-    ELM_SECTION,
-    ELM_PROPERTIES,
-    ELM_COUNT
+typedef struct Token
+{
+    StringBuilder* sb;
+    char type;
+    } Token;
+
+
+enum TOKEN_TYPES {
+    TYPE_TEXT,
+    TYPE_ELEMENT,
+    TYPE_PROPERTY,
+    TYPE_COUNT
 };
 
-const char* document_elements[] = {"#[title]", "#[section]", "#[prop]"};
+const char* token_type_strings[] = {"TEXT", "ELEMENT", "PROPERTY"};
 
 size_t get_file_size(FILE* fd){
     if(!fd) return 0;
@@ -43,23 +50,73 @@ size_t get_file_size(FILE* fd){
     return res;
 }
 // todo pass sb as pointer
-int get_next_token(IOFile* file, StringBuilder* sb){
+int get_next_token(IOFile* file, Token* token){
 
     //todo while loop doesn't detect #[ to exit
-    while (file->loc < file->size && !(file->loc+1 < file->size && file->content[file->loc] == '#' && file->content[file->loc+1] == '[')){
-        file->loc++;
-    }
-    if(file->loc >= file->size) return 0;
+    token->type = file->future_token_type;
+    token->sb->count = 0;
+    char is_new_elem = 0;
+    while (file->loc < file->size)
+    {
+        if (file->content[file->loc] == '#' && !is_new_elem)
+        {
+            is_new_elem = 1;
+            file->loc++;
+            continue;
+        }
+        
+        if (is_new_elem)
+        {
+            is_new_elem = 0;
+            if(file->content[file->loc] == '['){
+                file->loc++;
+                if(token->sb->count > 0){
+                    token->sb->data[token->sb->count] = '\0';
+                    file->future_token_type = TYPE_ELEMENT;
+                    
+                    return 1;
+                }
+                token->type = TYPE_ELEMENT;
+            }else{
+                //'#' was not an identifier, add the previous #
+                sb_add(token->sb, file->content[file->loc-1])
+            }
+        }
 
-    while(file->loc < file->size && file->content[file->loc] != ']'){
-        sb_add(sb, file->content[file->loc])
-        file->loc++;
+        if((token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY) && file->content[file->loc] == '|'){
+            file->loc++;
+            file->future_token_type = TYPE_PROPERTY;
+            token->sb->data[token->sb->count] = '\0';
+            return 1;
+        }
+
+        if((token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY) && file->content[file->loc] == ']'){
+            file->loc++;
+            file->future_token_type = 0;
+            token->sb->data[token->sb->count] = '\0';
+            return 1;
+        }
+        sb_add(token->sb, file->content[file->loc++]);
+
+        
+        
     }
-    if(file->loc >= file->size) return 0;
-    sb_add(sb, file->content[file->loc++]);
-    sb_add(sb, '\0');
-    printf("token: %s\n", sb->data);
-    return 1;
+    
+    return 0;
+    // while (file->loc < file->size && !(file->loc+1 < file->size && file->content[file->loc] == '#' && file->content[file->loc+1] == '[')){
+    //     file->loc++;
+    // }
+    // if(file->loc >= file->size) return 0;
+
+    // while(file->loc < file->size && file->content[file->loc] != ']'){
+    //     sb_add(sb, file->content[file->loc])
+    //     file->loc++;
+    // }
+    // if(file->loc >= file->size) return 0;
+    // sb_add(sb, file->content[file->loc++]);
+    // sb_add(sb, '\0');
+    // printf("token: %s\n", sb->data);
+    // return 1;
     
 
 };
@@ -89,12 +146,13 @@ int main() {
     }
 
     StringBuilder sb = {0};
-    while(get_next_token(&input, &sb)){
+    Token token = {
+        .sb = &sb,
+        .type = 0,
+    };
+    while(get_next_token(&input, &token)){
         // do stuff with token value in sb
-        if(strcmp(sb.data, document_elements[ELM_TITLE]) == 0){
-            printf("FOUND TITLE");
-            break;
-        }
+        printf("token: %s | type: %s\n", token.sb->data, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type]);
     }
 
 }
