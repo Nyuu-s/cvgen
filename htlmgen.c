@@ -20,6 +20,12 @@ typedef struct IOFile {
     char future_token_type;
 } IOFile;
 
+typedef struct DocElmProperties
+{
+    unsigned int font_size;
+} DocElmProperties;
+
+
 typedef struct StringBuilder {
     char* data;
     size_t capacity;
@@ -132,7 +138,7 @@ int main() {
     }
     input.size = get_file_size(input.fd);
     input.content = (char*) malloc(sizeof(char) * input.size);
-    if(fread(input.content, input.size, sizeof(char), input.fd) <= 0){
+    if(fread(input.content, sizeof(char), input.size,input.fd) <= 0){
         printf("Error on reading input file!");
         return 0;
     }
@@ -145,6 +151,18 @@ int main() {
         return 1;
     }
 
+    //gen boilerplate
+    fwrite("<!DOCTYPE html>\n",sizeof(char), 16, output.fd);
+    fwrite("<html lang=\"en\">\n",sizeof(char), 17, output.fd);
+    fwrite("<head>\n",sizeof(char), 7, output.fd);
+    fwrite("<meta charset=\"UTF-8\">\n",sizeof(char), 23, output.fd);
+    fwrite("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",sizeof(char), 71, output.fd);
+    
+    
+    DocElmProperties default_prop = {
+        .font_size = 12
+    };
+    
     StringBuilder sb = {0};
     Token token = {
         .sb = &sb,
