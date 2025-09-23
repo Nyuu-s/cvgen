@@ -1,2 +1,18 @@
-#[+wow+test]text1 #[+test2] text2
+#[title] my title
+ #[section] my section
+
+  f #[section]
+    #[list]
+        - el1
+        - el2
+        - el3
+        #[subtitle|] YAY
+
+
+
+
+    
+
+
+@(wow+test) text1 @(test2) text2 @(-test)
 

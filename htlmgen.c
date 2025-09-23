@@ -11,6 +11,7 @@ do{\
     }\
     sb->data[sb->count++] = c;\
 } while (0);
+#define NESTING_THRESHOLD 3
 
 typedef struct DocElmProperties
 {
@@ -26,7 +27,7 @@ typedef struct StringBuilder {
 
 typedef struct Token
 {
-    StringBuilder* sb;
+    char* value;
     char type;
 } Token;
 
@@ -39,6 +40,7 @@ typedef struct Lexer
     FILE* fd;
     char eof;
     char future_token_type;
+    StringBuilder* sb;
 } Lexer;
 
 
@@ -78,6 +80,61 @@ int peek_next_token(Lexer* lexer, Token* token){
     return res;
 }
 
+size_t get_left_nesting_distance(Lexer* lexer){
+
+    size_t cursor = lexer->loc;
+    char is_left_blank = 0;
+    while(cursor != 0  )
+    {
+        cursor--;
+        if(lexer->content[cursor] != ' ' && lexer->content[cursor] != '\t'){ 
+            // printf("%d hit! stoping ", lexer->content[cursor]);
+            //if \n is found then all left must be blank, if any non blank char is found than its not all blank on left
+            is_left_blank = lexer->content[cursor] == '\n';
+            cursor++;
+            // printf("is blank %d\n", is_left_blank);
+            break;
+        }
+    }
+
+    size_t res = ((lexer->loc - cursor) + NESTING_THRESHOLD) & ~NESTING_THRESHOLD;
+    return is_left_blank ? res : lexer->loc - cursor;
+
+}
+
+int get_next_token2(Lexer* lexer, Token* token){
+
+
+    lexer->sb->count = 0;
+    char token_is_done = 0;
+    char space_ctr = 0;
+    while (!lexer->eof && !token_is_done)
+    {
+        if (lexer->content[lexer->loc] == ' ' ) 
+        {
+            space_ctr +=1;
+        }else if( lexer->content[lexer->loc] == '\t') {
+            space_ctr += 4;
+        }
+           
+        if (lexer->content[lexer->loc] == '#' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '[')
+        {
+            //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
+            //done to be less strict on amount of space is considered a nesting level
+            //when there is 1,2,3,4 space it is considered 4
+            //              5,6,7,8 is 8 and so on 
+            size_t dist = get_left_nesting_distance(lexer);
+            
+
+            printf("distance: %zu\n", dist);
+        }
+        lexer->loc++;
+        
+    }
+    
+}
+
+
 int get_next_token(Lexer* lexer, Token* token){
 
     // if (lexer->peeked_token != NULL)
@@ -89,7 +146,7 @@ int get_next_token(Lexer* lexer, Token* token){
     
     //todo while loop doesn't detect #[ to exit
     token->type = lexer->future_token_type;
-    token->sb->count = 0;
+    lexer->sb->count = 0;
     char is_new_elem = 0;
     while (lexer->loc < lexer->input_size)
     {
@@ -103,57 +160,63 @@ int get_next_token(Lexer* lexer, Token* token){
             lexer->loc++;
             continue;
         }
-        
+
         if (is_new_elem)
         {
             is_new_elem = 0;
             if(lexer->content[lexer->loc] == '['){
                 lexer->loc++;
-                if(token->sb->count > 0){
-                    token->sb->data[token->sb->count] = '\0';
+                if(lexer->sb->count > 0){
+                    lexer->sb->data[lexer->sb->count] = '\0';
                     lexer->future_token_type = TYPE_ELEMENT;
                     
+                    token->value = lexer->sb->data;
                     return 1;
                 }
                 token->type = TYPE_ELEMENT;
             }else{
                 //'#' was not an identifier, add the previous #
-                sb_add(token->sb, lexer->content[lexer->loc-1])
+                sb_add(lexer->sb, lexer->content[lexer->loc-1])
             }
         }
         if((token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY) && lexer->content[lexer->loc] == '|'){
             lexer->loc++;
             lexer->future_token_type = TYPE_PROPERTY;
-            token->sb->data[token->sb->count] = '\0';
+            lexer->sb->data[lexer->sb->count] = '\0';
+
+            token->value = lexer->sb->data;
             return 1;
         }
 
         if((token->type == TYPE_ELEMENT) && lexer->content[lexer->loc] == '+'){
-            if(token->sb->count > 0){
+            if(lexer->sb->count > 0){
                 lexer->future_token_type = TYPE_ELEMENT;
-                token->sb->data[token->sb->count] = '\0';
+                lexer->sb->data[lexer->sb->count] = '\0';
+
+                token->value = lexer->sb->data;
                 return 1;
             }
         }
         if((token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY) && lexer->content[lexer->loc] == ']'){
-            if (strncmp("styles", token->sb->data, token->sb->count) == 0)
+            if (strncmp("styles", lexer->sb->data, lexer->sb->count) == 0)
             {
                 // mdoe style
             }
             
             lexer->loc++;
             lexer->future_token_type = 0;
-            token->sb->data[token->sb->count] = '\0';
+            lexer->sb->data[lexer->sb->count] = '\0';
+            token->value = lexer->sb->data;
             return 1;
         }
-        sb_add(token->sb, lexer->content[lexer->loc++]);
+        sb_add(lexer->sb, lexer->content[lexer->loc++]);
 
         
         
     }
-    token->sb->data[token->sb->count] = '\0';
+    lexer->sb->data[lexer->sb->count] = '\0';
     // get last token
-    if(token->sb->count > 0){ 
+    if(lexer->sb->count > 0){ 
         return 1;
     }
 
@@ -199,59 +262,14 @@ int main() {
     };
     
     StringBuilder sb = {0};
-    Token token = {
-        .sb = &sb,
-        .type = 0,
-    };
+    lexer.sb = &sb;
+
+    Token token = {0};
     int span_count = 0;
-    while(get_next_token(&lexer, &token)){
+    while(get_next_token2(&lexer, &token)){
+        printf("token: %s | type: %s \n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type]);
 
-        printf("token: %s | type: %s \n", token.sb->data, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type]);
-        switch (token.type)
-        {
-            case TYPE_ELEMENT:
-            // + mode : span generation
-            if(token.sb->data[0] == '+'){
-                char class_name[20]; 
-                snprintf(class_name, token.sb->count, "%s", token.sb->data+1 ); // +1 to skip the + char
-                fwrite("<span class=\"", sizeof(char), 13, output);
-                fwrite(class_name, sizeof(char), token.sb->count-1, output);
-                StringBuilder peeksb = {0};
-                Token peek = { .sb = &peeksb, .type = 0};
-                while (peek_next_token(&lexer, &peek) && peek.sb->data[0] == '+')
-                {
-                     
-                    if(!get_next_token(&lexer, &token)) break;
-
-                    snprintf(class_name, token.sb->count+2, ", %s", token.sb->data+1 ); // +1 to skip the + char
-                    fwrite(class_name, sizeof(char), token.sb->count+1, output); // count - 1 + 2 to strip \0 and take ", " into account
-                }
-                fwrite("\">\n", sizeof(char), 3, output);
-                span_count++;
-            }
-            else {
-                while (span_count > 0)
-                {
-                    span_count--;
-                    fwrite("</span>\n", sizeof(char), 8, output);
-                }
-                
-            }
-            // normal mode, div generation
-            break;
-        
-        default:
-            break;
-        }
-    
-    } 
-    // end any remaining unclosed spans
-    while (span_count > 0)
-    {
-        span_count--;
-        fwrite("</span>\n", sizeof(char), 8, output);
     }
-
     fwrite("</body>\n",sizeof(char), 8, output);
     fwrite("</html>\n",sizeof(char), 8, output);
 
