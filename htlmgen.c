@@ -122,7 +122,7 @@ size_t get_left_nesting_distance(Lexer* lexer){
 char lexer_read_char(Lexer* lexer){
     if(lexer->loc >= lexer->input_size) {
         lexer->eof = 1;
-        return;
+        return '\0';
     }
     lexer->content[lexer->loc++];
 }
@@ -146,7 +146,7 @@ int get_next_token2(Lexer* lexer, Token* token){
             token->type = TYPE_ELEMENT;
             lexer->loc += 2;
             while (!lexer->eof){
-                char curchar = lexer_read_char(&lexer);
+                char curchar = lexer_read_char(lexer);
                 if(curchar == '|' || curchar == ']'){
                     break;
                 }
@@ -158,7 +158,7 @@ int get_next_token2(Lexer* lexer, Token* token){
         if(lexer->content[lexer->loc] == '|' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
             lexer->loc++;
             while (!lexer->eof){
-                char curchar = lexer_read_char(&lexer);
+                char curchar = lexer_read_char(lexer);
                 if(curchar == '|' || curchar == ']'){
                     break;
                 }
@@ -173,7 +173,7 @@ int get_next_token2(Lexer* lexer, Token* token){
             lexer->loc++;
             continue;
         }
-        
+
         lexer->loc++;
         
     }
