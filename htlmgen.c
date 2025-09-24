@@ -174,6 +174,8 @@ int get_next_token2(Lexer* lexer, Token* token){
             continue;
         }
 
+        //TODO handle @(token+token:value)
+
         lexer->loc++;
         
     }
