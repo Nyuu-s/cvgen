@@ -11,7 +11,10 @@ do{\
     }\
     sb->data[sb->count++] = c;\
 } while (0);
+
+#define INITIAL_STACK_CAPACITY 100
 #define NESTING_THRESHOLD 3
+#define NESTING_IGNORED 1
 
 typedef struct DocElmProperties
 {
@@ -29,7 +32,22 @@ typedef struct Token
 {
     char* value;
     char type;
+    // size_t level;
 } Token;
+
+typedef struct NestingElement
+{
+    char* name;
+    size_t level;
+} NestingElement;
+
+typedef struct NestingStack
+{
+    NestingElement* elements;
+    size_t top;
+    size_t capacity;
+} NestingStack;
+
 
 typedef struct Lexer
 {
@@ -98,10 +116,16 @@ size_t get_left_nesting_distance(Lexer* lexer){
     }
 
     size_t res = ((lexer->loc - cursor) + NESTING_THRESHOLD) & ~NESTING_THRESHOLD;
-    return is_left_blank ? res : lexer->loc - cursor;
+    return is_left_blank ? res : NESTING_IGNORED;
 
 }
-
+char lexer_read_char(Lexer* lexer){
+    if(lexer->loc >= lexer->input_size) {
+        lexer->eof = 1;
+        return;
+    }
+    lexer->content[lexer->loc++];
+}
 int get_next_token2(Lexer* lexer, Token* token){
 
 
@@ -119,15 +143,37 @@ int get_next_token2(Lexer* lexer, Token* token){
            
         if (lexer->content[lexer->loc] == '#' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '[')
         {
-            //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
-            //done to be less strict on amount of space is considered a nesting level
-            //when there is 1,2,3,4 space it is considered 4
-            //              5,6,7,8 is 8 and so on 
-            size_t dist = get_left_nesting_distance(lexer);
-            
-
-            printf("distance: %zu\n", dist);
+            token->type = TYPE_ELEMENT;
+            lexer->loc += 2;
+            while (!lexer->eof){
+                char curchar = lexer_read_char(&lexer);
+                if(curchar == '|' || curchar == ']'){
+                    break;
+                }
+                sb_add(lexer->sb, curchar);
+            }
+            sb_add(lexer->sb, '\0');
+            return 1;
         }
+        if(lexer->content[lexer->loc] == '|' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
+            lexer->loc++;
+            while (!lexer->eof){
+                char curchar = lexer_read_char(&lexer);
+                if(curchar == '|' || curchar == ']'){
+                    break;
+                }
+                sb_add(lexer->sb, curchar);
+            }
+            sb_add(lexer->sb, '\0');
+            return 1;
+            
+        }
+        if(lexer->content[lexer->loc] == ']' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
+            token->type = TYPE_TEXT;
+            lexer->loc++;
+            continue;
+        }
+        
         lexer->loc++;
         
     }
@@ -224,6 +270,46 @@ int get_next_token(Lexer* lexer, Token* token){
     return 0;
 };
 
+int stack_init(NestingStack* stack, int default_cap){
+    if(!stack) return 0;
+    stack->capacity = default_cap;
+    stack->top = -1;
+    stack->elements = (NestingElement*) malloc(sizeof(NestingElement) * default_cap);
+    return 1;
+}
+int stack_push(NestingStack* stack, const char* name, size_t level){
+    if(!stack || !name) return 0;
+    
+    if(stack->top >= stack->capacity){
+        stack->capacity = stack->capacity == 0 ? INITIAL_STACK_CAPACITY : stack->capacity * 2;
+        NestingElement* new_elements = realloc(stack->elements, sizeof(NestingElement) * stack->capacity);
+        if(!new_elements) return 0;
+        stack->elements = new_elements; 
+        
+    }
+    stack->top++;
+    stack->elements[stack->top].name = (char*)malloc(sizeof(char) * strlen(name)+1);
+    if(!stack->elements[stack->top].name) return 0;
+    strcpy(stack->elements[stack->top].name, name);
+    stack->elements[stack->top].level = level;
+    return 1;
+}
+NestingElement stack_pop(NestingStack* stack){
+    if(!stack) return (NestingElement){0};
+    if(stack->top == -1) return (NestingElement){0};
+    NestingElement top_elem = stack->elements[stack->top];
+    stack->top--;
+    return top_elem;
+}
+
+NestingElement* stack_peek(NestingStack* stack){
+    if (stack->top != -1)
+    {
+        return &stack->elements[stack->top];
+    }
+    return NULL;
+}
+
 int main() {
     const char* input_file = "./text.txt";
     const char* output_file = "./out.html";
@@ -260,14 +346,69 @@ int main() {
     DocElmProperties default_prop = {
         .font_size = 12
     };
-    
-    StringBuilder sb = {0};
-    lexer.sb = &sb;
 
+    NestingStack stack = {0};
+    stack_init(&stack, INITIAL_STACK_CAPACITY);
+
+    StringBuilder sb = {0};
     Token token = {0};
+    lexer.sb = &sb;
     int span_count = 0;
     while(get_next_token2(&lexer, &token)){
         printf("token: %s | type: %s \n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type]);
+        
+        if(token.type == TYPE_ELEMENT){
+            //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
+            //done to be less strict on amount of space is considered a nesting level
+            //when there is 1,2,3,4 space it is considered 4
+            //              5,6,7,8 is 8 and so on 
+            char tmp[50];
+            size_t dist = get_left_nesting_distance(&lexer);
+            NestingElement* parent = stack_peek(&stack);
+            if(parent == NULL) continue;
+            if(dist == NESTING_IGNORED) {
+                fwrite("<" , sizeof(char), 1, output);
+                fwrite(token.value, sizeof(char), strlen(token.value), output);
+                continue;
+            }
+            if(parent->level > dist){
+                while (parent->level > dist)
+                {
+                    snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
+                    fwrite(tmp, sizeof(char), strlen(tmp), output);
+
+                    stack_pop(&stack);
+                    parent = stack_peek(&stack);
+                }
+                //TODO gen close parent
+                snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
+                fwrite(tmp, sizeof(char), strlen(tmp), output);
+
+                //TODO gen open current
+                fwrite("<" , sizeof(char), 1, output);
+                fwrite(token.value, sizeof(char), strlen(token.value), output);
+                stack_push(&stack, token.value, dist);
+                continue;
+            }
+            if(parent->level < dist){
+                
+                //TODO gen open current
+                fwrite("<" , sizeof(char), 1, output);
+                fwrite(token.value, sizeof(char), strlen(token.value), output);
+                stack_push(&stack, token.value, dist);
+                continue;
+            }else{
+                //TODO close parent
+                snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
+                fwrite(tmp, sizeof(char), strlen(tmp), output);
+                //TODO open current
+                fwrite("<" , sizeof(char), 1, output);
+                fwrite(token.value, sizeof(char), strlen(token.value), output);
+                stack_push(&stack, token.value, dist);
+            }
+        }
+            
+
 
     }
     fwrite("</body>\n",sizeof(char), 8, output);
