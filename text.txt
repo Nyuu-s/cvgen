@@ -6,7 +6,7 @@
         - el1
         - el2
         - el3
-        #[subtitle|] YAY
+        #[subtitle] YAY
 
 
 

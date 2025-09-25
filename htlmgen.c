@@ -66,10 +66,12 @@ enum TOKEN_TYPES {
     TYPE_TEXT,
     TYPE_ELEMENT,
     TYPE_PROPERTY,
+    TYPE_SPANSTYLE_KEY,
+    TYPE_SPANSTYLE_VALUE,
     TYPE_COUNT
 };
 
-const char* token_type_strings[] = {"TEXT", "ELEMENT", "PROPERTY"};
+const char* token_type_strings[] = {"TEXT", "ELEMENT", "PROPERTY", "SPAN_CLASS", "SPAN_TEXT"};
 int get_next_token(Lexer* lexer, Token* token);
 int peek_next_token(Lexer* lexer, Token* token);
 
@@ -124,23 +126,29 @@ char lexer_read_char(Lexer* lexer){
         lexer->eof = 1;
         return '\0';
     }
-    lexer->content[lexer->loc++];
+    // printf("readin: %c, loc: %zu \n ", lexer->content[lexer->loc], lexer->loc);
+    return lexer->content[lexer->loc++];
 }
 int get_next_token2(Lexer* lexer, Token* token){
 
 
     lexer->sb->count = 0;
-    char token_is_done = 0;
     char space_ctr = 0;
-    while (!lexer->eof && !token_is_done)
+    while (!lexer->eof)
     {
-        if (lexer->content[lexer->loc] == ' ' ) 
-        {
-            space_ctr +=1;
-        }else if( lexer->content[lexer->loc] == '\t') {
-            space_ctr += 4;
+        // if (lexer->content[lexer->loc] == ' ' ) 
+        // {
+        //     space_ctr +=1;
+        //     continue;
+        // }else if( lexer->content[lexer->loc] == '\t') {
+        //     space_ctr += 4;
+        //     continue;
+        // }
+
+        if(lexer->content[lexer->loc] == '\r' || lexer->content[lexer->loc] == '\n' ) {
+            lexer_read_char(lexer);    
+            continue;
         }
-           
         if (lexer->content[lexer->loc] == '#' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '[')
         {
             token->type = TYPE_ELEMENT;
@@ -148,11 +156,13 @@ int get_next_token2(Lexer* lexer, Token* token){
             while (!lexer->eof){
                 char curchar = lexer_read_char(lexer);
                 if(curchar == '|' || curchar == ']'){
+                    lexer->loc--;
                     break;
                 }
                 sb_add(lexer->sb, curchar);
             }
             sb_add(lexer->sb, '\0');
+            token->value = lexer->sb->data;
             return 1;
         }
         if(lexer->content[lexer->loc] == '|' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
@@ -160,11 +170,13 @@ int get_next_token2(Lexer* lexer, Token* token){
             while (!lexer->eof){
                 char curchar = lexer_read_char(lexer);
                 if(curchar == '|' || curchar == ']'){
+                    lexer->loc--;
                     break;
                 }
                 sb_add(lexer->sb, curchar);
             }
             sb_add(lexer->sb, '\0');
+            token->value = lexer->sb->data;
             return 1;
             
         }
@@ -174,11 +186,77 @@ int get_next_token2(Lexer* lexer, Token* token){
             continue;
         }
 
-        //TODO handle @(token+token:value)
-
-        lexer->loc++;
-        
+        if (lexer->content[lexer->loc] == '@' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '(')
+        {
+            token->type = TYPE_SPANSTYLE_KEY;
+            lexer->loc += 2;
+            char curchar;
+            while (!lexer->eof){
+                curchar = lexer_read_char(lexer);
+                if(curchar == '+' || curchar == ':'){
+                    lexer->loc--;
+                    break;
+                }
+                sb_add(lexer->sb, curchar);
+            }
+            sb_add(lexer->sb, '\0');
+            token->value = lexer->sb->data;
+            return 1;
+        }
+        if (lexer->content[lexer->loc] == '+' && token->type == TYPE_SPANSTYLE_KEY){
+            lexer->loc++;
+            while (!lexer->eof){
+                char curchar = lexer_read_char(lexer);
+                if(curchar == '+' || curchar == ':'){
+                    lexer->loc--;
+                    break;
+                }
+                sb_add(lexer->sb, curchar);
+            }
+            sb_add(lexer->sb, '\0');
+            token->value = lexer->sb->data;
+            return 1;
+        }
+        if (lexer->content[lexer->loc] == ':' && token->type == TYPE_SPANSTYLE_KEY){
+            token->type = TYPE_SPANSTYLE_VALUE;
+            lexer->loc++;
+            while (!lexer->eof){
+                char curchar = lexer_read_char(lexer);
+                if(curchar == ')'){
+                    break;
+                }
+                sb_add(lexer->sb, curchar);
+            }
+            sb_add(lexer->sb, '\0');
+            token->value = lexer->sb->data;
+            return 1;
+        }
+        token->type = TYPE_TEXT;
+        while (!lexer->eof)
+        {
+           char curchar = lexer_read_char(lexer);
+           if (curchar == '#' && lexer->loc < lexer->input_size && lexer->content[lexer->loc] == '[')
+           {
+                lexer->loc--;
+                break;
+           }
+            if (curchar == '@' && lexer->loc < lexer->input_size && lexer->content[lexer->loc] == '(')
+           {
+                lexer->loc--;
+                break;
+           }
+           if (curchar == '\n' ||curchar == '\r')
+           {
+                continue;
+           }
+           
+           sb_add(lexer->sb, curchar);           
+        }
+        sb_add(lexer->sb, '\0');
+        token->value = lexer->sb->data;
+        return 1;        
     }
+    return 0;
     
 }
 
@@ -357,9 +435,9 @@ int main() {
     lexer.sb = &sb;
     int span_count = 0;
     while(get_next_token2(&lexer, &token)){
-        printf("token: %s | type: %s \n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type]);
+        printf("token: %s | type: %s | loc: %zu\n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type], lexer.loc);
         
-        if(token.type == TYPE_ELEMENT){
+        if(token.type == 99){
             //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
             //done to be less strict on amount of space is considered a nesting level
             //when there is 1,2,3,4 space it is considered 4
@@ -410,7 +488,7 @@ int main() {
             }
         }
             
-
+        
 
     }
     fwrite("</body>\n",sizeof(char), 8, output);
