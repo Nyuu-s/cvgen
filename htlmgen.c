@@ -92,11 +92,13 @@ int is_control_char(char c){
 }
 
 
-size_t get_left_nesting_distance(Lexer* lexer){
-
-    size_t cursor = lexer->loc;
-    char is_left_blank = 0;
-    while(cursor != 0  )
+size_t get_nesting_distance(Lexer* lexer, Token* token){
+    //cursor is start of element tag so pos - len(token) to get at the start of token and -2 for the #[ 
+    size_t cursor = lexer->loc - strlen(token->value) - 2;
+    size_t init_pos = cursor;
+    printf("start: %c\n", lexer->content[cursor]);
+    char is_left_blank = 1;
+    while(cursor > 0  )
     {
         cursor--;
         if(lexer->content[cursor] != ' ' && lexer->content[cursor] != '\t'){ 
@@ -108,8 +110,8 @@ size_t get_left_nesting_distance(Lexer* lexer){
             break;
         }
     }
-
-    size_t res = ((lexer->loc - cursor) + NESTING_THRESHOLD) & ~NESTING_THRESHOLD;
+    // if (cursor <= 0) return 0;   
+    size_t res = ((init_pos - cursor) + NESTING_THRESHOLD) & ~NESTING_THRESHOLD;
     return is_left_blank ? res : NESTING_IGNORED;
 
 }
@@ -149,6 +151,7 @@ int get_next_token2(Lexer* lexer, Token* token){
         }
         if(lexer->content[lexer->loc] == '|' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
             lexer->loc++;
+            token->type = TYPE_PROPERTY;
             while (lexer->loc < lexer->input_size){
                 char curchar = lexer_read_char(lexer);
                 if(curchar == '|' || curchar == ']'){
@@ -356,22 +359,35 @@ int main() {
     int span_count = 0;
     while(get_next_token2(&lexer, &token)){
         printf("token: %s | type: %s | loc: %zu\n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type], lexer.loc);
-
-        if(token.type == 99){
+        //TODO parse tokens
+        switch (token.type)
+        {
+        case TYPE_ELEMENT:
             //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
             //done to be less strict on amount of space is considered a nesting level
             //when there is 1,2,3,4 space it is considered 4
             //              5,6,7,8 is 8 and so on 
             char tmp[50];
-            size_t dist = get_left_nesting_distance(&lexer);
+            size_t dist = get_nesting_distance(&lexer, &token);
+            printf("res: %zu\n", dist);
             NestingElement* parent = stack_peek(&stack);
-            if(parent == NULL) continue;
+            if(parent == NULL) {
+                stack_push(&stack, token.value, dist);    
+                printf("No parent yet\n");
+                //TODO open current
+                fwrite("<" , sizeof(char), 1, output);
+                fwrite(token.value, sizeof(char), strlen(token.value), output);
+                stack_push(&stack, token.value, dist);
+                continue;
+            }
             if(dist == NESTING_IGNORED) {
+                printf("current = ignored\n");
                 fwrite("<" , sizeof(char), 1, output);
                 fwrite(token.value, sizeof(char), strlen(token.value), output);
                 continue;
             }
             if(parent->level > dist){
+                printf("parent > current\n");
                 while (parent->level > dist)
                 {
                     snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
@@ -380,7 +396,6 @@ int main() {
                     stack_pop(&stack);
                     parent = stack_peek(&stack);
                 }
-                //TODO gen close parent
                 snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
                 fwrite(tmp, sizeof(char), strlen(tmp), output);
 
@@ -392,6 +407,7 @@ int main() {
             }
             if(parent->level < dist){
                 
+                printf("parent < current\n");
                 //TODO gen open current
                 fwrite("<" , sizeof(char), 1, output);
                 fwrite(token.value, sizeof(char), strlen(token.value), output);
@@ -399,6 +415,8 @@ int main() {
                 continue;
             }else{
                 //TODO close parent
+
+                printf("parent = current\n");
                 snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
                 fwrite(tmp, sizeof(char), strlen(tmp), output);
                 //TODO open current
@@ -406,8 +424,13 @@ int main() {
                 fwrite(token.value, sizeof(char), strlen(token.value), output);
                 stack_push(&stack, token.value, dist);
             }
-        }
-            
+            break;
+        case TYPE_PROPERTY:
+
+        break;
+        default:
+            break;
+        }   
         
 
     }
