@@ -4,12 +4,12 @@
 #include <string.h>
 #define sb_add(sb, c)\
 do{\
-    if(sb->capacity <= sb->count){\
-        if(sb->capacity == 0) sb->capacity = 64;\
-        sb->capacity *= 2;\
-        sb->data = realloc(sb->data, sb->capacity * sizeof(*sb->data));\
+    if(sb.capacity <= sb.count){\
+        if(sb.capacity == 0) sb.capacity = 64;\
+        sb.capacity *= 2;\
+        sb.data = realloc(sb.data, sb.capacity * sizeof(*sb.data));\
     }\
-    sb->data[sb->count++] = c;\
+    sb.data[sb.count++] = c;\
 } while (0);
 
 #define INITIAL_STACK_CAPACITY 100
@@ -22,18 +22,22 @@ typedef struct DocElmProperties
 } DocElmProperties;
 
 
-typedef struct StringBuilder {
-    char* data;
-    size_t capacity;
-    size_t count;
-} StringBuilder;
 
 typedef struct Token
 {
-    char* value;
+    union {
+        char* value;
+        struct {
+            char* data;
+            size_t capacity;
+            size_t count;
+        } sb;
+    };
     char type;
-    // size_t level;
+    
 } Token;
+
+
 
 typedef struct NestingElement
 {
@@ -52,24 +56,55 @@ typedef struct NestingStack
 typedef struct Lexer
 {
     char* content;
-    Token* peeked_token; //maybe later
     size_t input_size;
     size_t loc;
+    size_t line;
     FILE* fd;
-    StringBuilder* sb;
+    // StringBuilder* sb;
 } Lexer;
+
+// #define TOKEN_START_ELEM "#["
+// #define TOKEN_END_ELEM "]"
+// #define TOKEN_START_SPANSTYLE "@("
+// #define TOKEN_END_SPANSTYLE ")"
+// #define TOKEN_ELEM_CLASSSEP "|"
+// #define TOKEN_SPANSTYLE_CLASSSEP "+"
+// #define TOKEN_SPANSTYLE_CLASSEND ":"
+// #define TOKEN_ELEM_ATTR "="
+
 
 
 enum TOKEN_TYPES {
     TYPE_TEXT,
     TYPE_ELEMENT,
-    TYPE_PROPERTY,
-    TYPE_SPANSTYLE_KEY,
+    TYPE_ELEMENT_OPEN,
+    TYPE_ELEMENT_CLOSE,
+    TYPE_ELEMENT_NAME,
+    TYPE_ELEMENT_CLASS,
+    TYPE_ELEMENT_ATTRIBUTE,
+    TYPE_SPANSTYLE_OPEN,
+    TYPE_SPANSTYLE_CLOSE,
+    TYPE_SPANSTYLE_CLASS,
     TYPE_SPANSTYLE_VALUE,
+    TYPE_IDENTIFIER,
     TYPE_COUNT
 };
 
-const char* token_type_strings[] = {"TEXT", "ELEMENT", "PROPERTY", "SPAN_CLASS", "SPAN_TEXT"};
+const char* token_type_strings[] = {
+   "TEXT",
+   "ELEMENT",
+   "ELEMENT_OPEN",
+   "ELEMENT_CLOSE",
+   "ELEMENT_NAME",
+   "ELEMENT_CLASS",
+   "ELEMENT_ATTRIBUTE",
+   "SPANSTYLE_OPEN",
+   "SPANSTYLE_CLOSE",
+   "SPANSTYLE_CLASS",
+   "SPANSTYLE_VALUE",
+   "IDENTIFIER"
+    
+};
 int get_next_token(Lexer* lexer, Token* token);
 int peek_next_token(Lexer* lexer, Token* token);
 
@@ -114,159 +149,65 @@ size_t get_left_nesting_distance(Lexer* lexer){
 
 }
 char lexer_read_char(Lexer* lexer){
-    if(lexer->loc >= lexer->input_size) {
-        return '\0';
+    if (lexer->loc < lexer->input_size)
+    {
+        return lexer->content[lexer->loc++];
     }
-    // printf("readin: %c, loc: %zu \n ", lexer->content[lexer->loc], lexer->loc);
-    return lexer->content[lexer->loc++];
+    return EOF;
+};
+char lexer_peek_char(Lexer* lexer){
+    if (lexer->loc < lexer->input_size)
+    {
+        return lexer->content[lexer->loc];
+    }
+    return EOF;
 }
 int get_next_token2(Lexer* lexer, Token* token){
 
-    //TODO use lexer_read_char more consistently
-    lexer->sb->count = 0;
-    char found_valid = 0;
-    while (lexer->loc < lexer->input_size)
+    token->sb.count = 0;
+    char currchar = lexer_read_char(lexer);
+    while (lexer->loc < lexer->input_size && currchar != EOF)
     {
-        if(is_control_char(lexer->content[lexer->loc]) ) {
-            lexer_read_char(lexer);    
-            continue;
+        if(currchar == '\n'){
+            lexer->line++;
+            currchar = lexer_read_char(lexer);
         }
-        if (lexer->content[lexer->loc] == '#' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '[')
-        {
-            token->type = TYPE_ELEMENT;
-            lexer->loc += 2;
-            while (lexer->loc < lexer->input_size){
-                char curchar = lexer_read_char(lexer);
-                if(curchar == '|' || curchar == ']'){
-                    lexer->loc--;
-                    break;
-                }
-                sb_add(lexer->sb, curchar);
-            }
-            sb_add(lexer->sb, '\0');
-            token->value = lexer->sb->data;
-            return 1;
-        }
-        if(lexer->content[lexer->loc] == '|' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
-            lexer->loc++;
-            while (lexer->loc < lexer->input_size){
-                char curchar = lexer_read_char(lexer);
-                if(curchar == '|' || curchar == ']'){
-                    lexer->loc--;
-                    break;
-                }
-                sb_add(lexer->sb, curchar);
-            }
-            sb_add(lexer->sb, '\0');
-            token->value = lexer->sb->data;
-            return 1;
-            
-        }
-         if(lexer->content[lexer->loc] == ']' && (token->type == TYPE_ELEMENT || token->type == TYPE_PROPERTY )){
-            token->type = TYPE_TEXT;
-            lexer->loc++;
-            continue;
-        }     
-        if(lexer->content[lexer->loc] == ')' && (token->type == TYPE_SPANSTYLE_VALUE || token->type == TYPE_SPANSTYLE_KEY )){
-            token->type = TYPE_TEXT;
-            lexer->loc++;
-            continue;
-        }
-        
-        if (lexer->content[lexer->loc] == '@' && lexer->loc+1 < lexer->input_size && lexer->content[lexer->loc+1] == '(')
-        {
-            token->type = TYPE_SPANSTYLE_KEY;
-            lexer->loc += 2;
-            char curchar;
-            while (lexer->loc < lexer->input_size){
-                curchar = lexer_read_char(lexer);
-                if(curchar == '+' || curchar == ':'){
-                    lexer->loc--;
-                    break;
-                }
-                sb_add(lexer->sb, curchar);
-            }
-            sb_add(lexer->sb, '\0');
-            token->value = lexer->sb->data;
-            return 1;
-        }
-        if (lexer->content[lexer->loc] == '+' && token->type == TYPE_SPANSTYLE_KEY){
-            lexer->loc++;
-            while (lexer->loc < lexer->input_size){
-                char curchar = lexer_read_char(lexer);
-                if(curchar == '+' || curchar == ':'){
-                    lexer->loc--;
-                    break;
-                }
-                sb_add(lexer->sb, curchar);
-            }
-            sb_add(lexer->sb, '\0');
-            token->value = lexer->sb->data;
-            return 1;
-        }
-        if (lexer->content[lexer->loc] == ':' && token->type == TYPE_SPANSTYLE_KEY){
-            token->type = TYPE_SPANSTYLE_VALUE;
-            lexer->loc++;
-            char curchar = lexer_read_char(lexer);
-            while (lexer->loc < lexer->input_size && (curchar == ' ' || is_control_char(curchar)))
-            {
-                curchar = lexer_read_char(lexer);
-            }
-            while (lexer->loc < lexer->input_size){
-                if(curchar == ')'){
-                    break;
-                }
-                sb_add(lexer->sb, curchar);
-                curchar = lexer_read_char(lexer);
-            }
-            sb_add(lexer->sb, '\0');
-            token->value = lexer->sb->data;
-            // printf("%d\n", lexer->content[lexer->loc+1]);
-            return 1;
-        }
-        token->type = TYPE_TEXT;
-        char curchar = lexer_read_char(lexer);
-        while (lexer->loc < lexer->input_size && (curchar == ' ' || is_control_char(curchar)))
-        {
-            curchar = lexer_read_char(lexer);
-        }
-        while (lexer->loc < lexer->input_size)
-        {
-            if (curchar == '#' && lexer->loc < lexer->input_size && lexer->content[lexer->loc] == '[')
-            {
-                lexer->loc--;
-                break;
-            }
-            if (curchar == '@' && lexer->loc < lexer->input_size && lexer->content[lexer->loc] == '(')
-            {
-                lexer->loc--;
-                break;
-            }
-            if (curchar == ' ')
-            {
-                break;
-            }
-            
-            
-            if (is_control_char(curchar))
-            {
-                curchar = lexer_read_char(lexer);        
-                continue;
-            }
-            sb_add(lexer->sb, curchar);   
-            curchar = lexer_read_char(lexer);        
-           
-        }
-        if(lexer->sb->count <= 0) continue;
 
-        sb_add(lexer->sb, '\0');
-        token->value = lexer->sb->data;
-        return 1;        
+        if(currchar == '#' && lexer_peek_char(lexer) == '['){
+            currchar = lexer_read_char(lexer);
+            token->type = TYPE_ELEMENT_OPEN;
+            sb_add(token->sb, '#');
+            sb_add(token->sb, currchar);
+            token->sb.data[token->sb.count] = '\0';
+            return 1;
+        }
+
+        if(token->type == TYPE_ELEMENT_OPEN ){
+            if(is_alpha_num(currchar)){
+                token->type = TYPE_IDENTIFIER;
+                while (currchar != EOF && currchar != '|' && currchar != ']') {
+                    sb_add(token->sb, currchar);
+                    currchar = lexer_read_char(lexer);
+                }
+                if(currchar != EOF){
+                    lexer->loc--;
+                }
+                // if(currchar == EOF) return 0; // maybe useless next read will fail already
+                token->sb.data[token->sb.count] = '\0';
+                return 1;
+            } else {
+                printf("ERROR: invalid character %c for the element's identifier at line %zu position %zu", currchar , lexer->line, lexer->loc);
+                return 0;
+            }
+        }
+
+
+        return 0;
+
     }
-    lexer->sb->data[0] = '\0';
     return 0;
-    
-}
+
+};
 
 
 
@@ -314,6 +255,7 @@ int main() {
     const char* input_file = "./text.txt";
     const char* output_file = "./out.html";
     Lexer lexer = {0};
+    lexer.line = 1;
     lexer.fd = fopen(input_file, "rb");
     if(!lexer.fd){
         printf("Couldn't open input file %s\n", input_file);
@@ -350,9 +292,9 @@ int main() {
     NestingStack stack = {0};
     stack_init(&stack, INITIAL_STACK_CAPACITY);
 
-    StringBuilder sb = {0};
+    // StringBuilder sb = {0};
     Token token = {0};
-    lexer.sb = &sb;
+    // lexer.sb = &sb;
     int span_count = 0;
     while(get_next_token2(&lexer, &token)){
         printf("token: %s | type: %s | loc: %zu\n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type], lexer.loc);
