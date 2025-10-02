@@ -72,37 +72,27 @@ typedef struct Lexer
 // #define TOKEN_SPANSTYLE_CLASSEND ":"
 // #define TOKEN_ELEM_ATTR "="
 
+typedef struct ParserState{
+    int state;
+} ParserState;
 
+enum STATES {
+    STATE_TEXT,
+    STATE_ELEMENT,
+};
 
 enum TOKEN_TYPES {
-    TYPE_TEXT,
-    TYPE_ELEMENT,
-    TYPE_ELEMENT_OPEN,
-    TYPE_ELEMENT_CLOSE,
-    TYPE_ELEMENT_NAME,
-    TYPE_ELEMENT_CLASS,
-    TYPE_ELEMENT_ATTRIBUTE,
-    TYPE_SPANSTYLE_OPEN,
-    TYPE_SPANSTYLE_CLOSE,
-    TYPE_SPANSTYLE_CLASS,
-    TYPE_SPANSTYLE_VALUE,
+
+    TYPE_PUNCT,
+    TYPE_SEPARATOR,
     TYPE_IDENTIFIER,
     TYPE_COUNT
 };
 
 const char* token_type_strings[] = {
-   "TEXT",
-   "ELEMENT",
-   "ELEMENT_OPEN",
-   "ELEMENT_CLOSE",
-   "ELEMENT_NAME",
-   "ELEMENT_CLASS",
-   "ELEMENT_ATTRIBUTE",
-   "SPANSTYLE_OPEN",
-   "SPANSTYLE_CLOSE",
-   "SPANSTYLE_CLASS",
-   "SPANSTYLE_VALUE",
-   "IDENTIFIER"
+    "PUNCT",
+    "SEPARATOR",
+    "IDENTIFIER"
     
 };
 int get_next_token(Lexer* lexer, Token* token);
@@ -175,34 +165,55 @@ int get_next_token2(Lexer* lexer, Token* token){
 
         if(currchar == '#' && lexer_peek_char(lexer) == '['){
             currchar = lexer_read_char(lexer);
-            token->type = TYPE_ELEMENT_OPEN;
+            token->type = TYPE_PUNCT;
             sb_add(token->sb, '#');
             sb_add(token->sb, currchar);
             token->sb.data[token->sb.count] = '\0';
             return 1;
         }
-
-        if(token->type == TYPE_ELEMENT_OPEN ){
-            if(is_alpha_num(currchar)){
-                token->type = TYPE_IDENTIFIER;
-                while (currchar != EOF && currchar != '|' && currchar != ']') {
-                    sb_add(token->sb, currchar);
-                    currchar = lexer_read_char(lexer);
-                }
-                if(currchar != EOF){
-                    lexer->loc--;
-                }
-                // if(currchar == EOF) return 0; // maybe useless next read will fail already
-                token->sb.data[token->sb.count] = '\0';
-                return 1;
-            } else {
-                printf("ERROR: invalid character %c for the element's identifier at line %zu position %zu", currchar , lexer->line, lexer->loc);
-                return 0;
-            }
+        if(currchar == '@' && lexer_peek_char(lexer) == '('){
+            currchar = lexer_read_char(lexer);
+            token->type = TYPE_PUNCT;
+            sb_add(token->sb, '@');
+            sb_add(token->sb, currchar);
+            token->sb.data[token->sb.count] = '\0';
+            return 1;
         }
+        if(currchar == ']' || currchar == ')' || currchar == '=' || currchar == ':' ){
+            token->type = TYPE_PUNCT;
+            sb_add(token->sb, currchar);
+            token->sb.data[token->sb.count] = '\0';
+            return 1;
+        }
+        if(currchar == '|' || currchar == '+'){
+            token->type = TYPE_SEPARATOR;
+            sb_add(token->sb, currchar);
+            token->sb.data[token->sb.count] = '\0';
+            return 1;
+        }
+        
+        if(is_alpha_num(currchar)){
+            sb_add(token->sb, currchar);
+            currchar = lexer_read_char(lexer);
+            while (is_alpha_num(currchar)) {
+                sb_add(token->sb, currchar);
+                currchar = lexer_read_char(lexer);
+            }
+            token->type = TYPE_IDENTIFIER;
+            token->sb.data[token->sb.count] = '\0';
+            lexer->loc--;
+            return 1;
+        } 
 
+        if(token->sb.count > 0 && (is_control_char(currchar) || currchar == ' ')){
+            token->sb.data[token->sb.count] = '\0';
+            token->type = TYPE_IDENTIFIER;
+            return 1;
+        } else {
+            currchar = lexer_read_char(lexer);
 
-        return 0;
+        }
+        
 
     }
     return 0;
@@ -251,10 +262,30 @@ NestingElement* stack_peek(NestingStack* stack){
     return NULL;
 }
 
+int lexer_register_punctuation(Lexer* lexer, const char** strarr, size_t amount){
+    for (int i=0; i<amount; i++) {
+        if(strlen(strarr[i]) > 1)
+            printf("TODO: register multi-char punct: %s\n", strarr[i]);
+        else
+            printf("TODO: register single-char punct: %s\n", strarr[i]);
+    }
+}
+int lexer_register_separators(Lexer* lexer, const char** strarr, size_t amount){
+    for (int i=0; i<amount; i++) {
+        if(strlen(strarr[i]) > 1)
+            printf("TODO: register multi-char separator: %s\n", strarr[i]);
+        else
+            printf("TODO: register multi-char punct: %s\n", strarr[i]);
+    }
+}
 int main() {
     const char* input_file = "./text.txt";
     const char* output_file = "./out.html";
+    const char* PUNCT[] = {"#[", "]", "=",  "@(", ")"};
+    const char* SEPS[] = {"|",":","+"};
     Lexer lexer = {0};
+    lexer_register_punctuation(&lexer, PUNCT, 5);
+    lexer_register_separators(&lexer, SEPS, 3);
     lexer.line = 1;
     lexer.fd = fopen(input_file, "rb");
     if(!lexer.fd){
