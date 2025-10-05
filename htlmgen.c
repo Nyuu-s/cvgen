@@ -112,7 +112,9 @@ size_t get_file_size(FILE* fd){
 int is_alpha_num(char c){
     return ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z' ) || (c >= '0' && c <= '9'));
 }
-
+int is_special_char(char c){
+    return (c == '"' || c == '\'' || c == '@' || c == '#' || c == '-' || c == '_' );
+}
 int is_control_char(char c){
     return (c <= 0x1F);
 }
@@ -200,10 +202,10 @@ int get_next_token(Lexer* lexer, Token* token){
             return 1;
         }
         
-        if(is_alpha_num(currchar)){
+        if(is_alpha_num(currchar) || is_special_char(currchar)){
             sb_add(token->sb, currchar);
             currchar = lexer_read_char(lexer);
-            while (is_alpha_num(currchar)) {
+            while (is_alpha_num(currchar) ||is_special_char(currchar)) {
                 sb_add(token->sb, currchar);
                 currchar = lexer_read_char(lexer);
             }
@@ -362,9 +364,19 @@ void handle_element(Lexer* lexer, Token* token, FILE* output){
             if(mode_class_property){
                 //handle properties
                 if (class_flag) {
-                    fwrite("\"",sizeof(char), 1, output);
+                    fwrite("\" ",sizeof(char), 2, output);
                 }
-                printf("TODO: handle properties");
+                fwrite(token->value,sizeof(char), strlen(token->value), output);
+                if(!get_next_token(lexer, token)){
+                    printf("ERROR: Expected = after identifier in element attributes!");
+                    return;
+                }
+                fwrite("=",sizeof(char), 1, output);
+                if(!get_next_token(lexer, token)){
+                    printf("ERROR: Expected valid identifier after = in element!");
+                    return;
+                }
+                fwrite(token->value,sizeof(char), strlen(token->value), output);
             }else {
                 //handle class names
                 if(class_flag == 0) { 

@@ -1,2 +1,2 @@
 #[title] My Title
-#[section|test|wow|truc=5]
+#[section|test|wow]
