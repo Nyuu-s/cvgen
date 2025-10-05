@@ -384,7 +384,7 @@ void handle_element(Lexer* lexer, Token* token, FILE* output){
                     class_flag = 1;
                 }
                 else
-                    fwrite(",",sizeof(char), 1, output);
+                    fwrite(" ",sizeof(char), 1, output);
                 fwrite(token->value,sizeof(char), strlen(token->value), output);
             }
             
@@ -398,6 +398,47 @@ void handle_element(Lexer* lexer, Token* token, FILE* output){
             return;
         }
     }
+}
+
+void handle_spanstyle(Lexer* lexer, Token* token , FILE* output){
+
+    fwrite("<span class=\"",sizeof(char), 13, output);
+    int class_count = 0;
+    char prev_type = TYPE_PUNCT;
+    while (get_next_token(lexer, token) && strcmp(token->value, ":") != 0) {
+        if(token->type == TYPE_IDENTIFIER){
+            class_count++;
+            fwrite(token->value,sizeof(char), strlen(token->value), output);
+            continue;
+        }
+        if(strcmp(token->value, "+") == 0){
+            fwrite(" ",sizeof(char), 1, output);
+            prev_type = TYPE_SEPARATOR;
+            continue;
+        }
+        if(prev_type == TYPE_SEPARATOR && token->type != TYPE_IDENTIFIER){
+            printf("ERROR: Expected a valid identifier after span class separtor!");
+            return;
+        }
+    }
+    if(strcmp(token->value, ":") == 0){
+
+        fwrite("\">",sizeof(char), 2, output);
+        while (get_next_token(lexer, token) && strcmp(token->value, ")") != 0) {
+            if(token->type == TYPE_IDENTIFIER){
+                fwrite(token->value,sizeof(char), strlen(token->value), output);
+                fwrite(" ",sizeof(char), 1, output);
+            }else {
+                printf("ERROR: Expected a valid identifier for span values!");
+                break;
+            }
+        }
+        if(strcmp(token->value, ")") == 0){
+            fwrite("</span>\n",sizeof(char), 8, output);
+        }
+    }
+
+
 }
 
 int main() {
@@ -458,16 +499,16 @@ int main() {
         switch (token.type) {
             case TYPE_PUNCT:
                 if (strcmp(token.value, "#[") == 0) {
-
                     handle_element(&lexer, &token, output);
- 
                 }
                 else if (strcmp(token.value, "@(") == 0) {
-                    // handle_spanstyle();
+                    handle_spanstyle(&lexer, &token, output);
                 }
             break;
             case TYPE_IDENTIFIER:
                 fwrite(token.value ,sizeof(char), strlen(token.value), output);
+                fwrite(" " ,sizeof(char), 1, output);
+
             break;
             default:break;
         }

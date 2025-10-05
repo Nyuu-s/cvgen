@@ -1,2 +1,3 @@
-#[title] My Title
-#[section|test|wow]
+#[title] my title
+#[section] truc
+#[div] ma super div @(wow+test: DIV)
