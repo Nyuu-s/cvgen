@@ -1,2 +1,2 @@
- #[title|fun=4] my title
-    @(wow+test: value)
+#[title] My Title
+#[section|test|wow|truc=5]

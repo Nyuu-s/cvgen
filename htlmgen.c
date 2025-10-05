@@ -1,4 +1,5 @@
 
+#include <float.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -152,11 +153,18 @@ char lexer_peek_char(Lexer* lexer){
     }
     return EOF;
 }
-int get_next_token2(Lexer* lexer, Token* token){
+int peek_next_token(Lexer* lexer, Token* token){
+    Lexer back = *lexer;
+    int res = get_next_token(lexer, token);
+    *lexer = back;
+    return res;
+}
+
+int get_next_token(Lexer* lexer, Token* token){
 
     token->sb.count = 0;
     char currchar = lexer_read_char(lexer);
-    while (lexer->loc < lexer->input_size && currchar != EOF)
+    while (lexer->loc <= lexer->input_size && currchar != EOF)
     {
         if(currchar == '\n'){
             lexer->line++;
@@ -278,6 +286,108 @@ int lexer_register_separators(Lexer* lexer, const char** strarr, size_t amount){
             printf("TODO: register multi-char punct: %s\n", strarr[i]);
     }
 }
+
+void handle_title(Lexer* lexer, Token* token, FILE* output){
+    Lexer back = *lexer;
+    char is_valid = 0;
+    fwrite("<title>",sizeof(char), 7, output);
+    get_next_token(lexer, token);
+    if(token->type == TYPE_PUNCT && strcmp(token->value, "#[") == 0){
+        get_next_token(lexer, token);
+        if (strcmp(token->value, "title") == 0) {
+            get_next_token(lexer, token);
+            if (strcmp(token->value, "]") == 0) {
+               while (get_next_token(lexer, token) && token->type== TYPE_IDENTIFIER) {
+                    fwrite(token->value,sizeof(char), strlen(token->value), output);
+                    is_valid = 1;
+                    if(peek_next_token(lexer, token) && token->type == TYPE_IDENTIFIER)
+                        fwrite(" ",sizeof(char), 1, output);
+                    else
+                     break;
+               } 
+            }
+        }
+    }
+    if(!is_valid){   
+        fwrite("default",sizeof(char), 7, output);
+        *lexer = back;
+    }
+    fwrite("</title>\n",sizeof(char), 9, output);
+}
+
+void handle_element(Lexer* lexer, Token* token, FILE* output){
+    if(!get_next_token(lexer, token)) {
+        printf("ERROR: reached EOF before end of element! ");
+        return;
+    }
+    if(token->type != TYPE_IDENTIFIER) {
+        printf("ERROR: Expected identifier for element name!");
+        return;
+    }
+    fwrite("<",sizeof(char), 1, output);
+    fwrite(token->value,sizeof(char), strlen(token->value), output);
+    if(!get_next_token(lexer, token)) {
+        printf("ERROR: reached EOF before end of element! ");
+        return;
+    }
+    if(strcmp(token->value, "|") != 0 && strcmp(token->value, "]") != 0 ) {
+        printf("ERROR: Unexpected token after element name! ");
+        return;
+    }
+    if(strcmp(token->value, "]") == 0) {
+        fwrite(">\n",sizeof(char), 2, output);
+        return;
+    }
+    char mode_class_property = 0;
+    char class_flag = 0;
+    if(strcmp(token->value, "|") == 0) {
+        char prev_type = TYPE_SEPARATOR;
+        while (get_next_token(lexer, token) && strcmp(token->value, "]") != 0) {
+
+            printf("token: %s | type: %s | loc: %zu\n", token->value, token->type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token->type], lexer->loc);
+            if (prev_type == TYPE_SEPARATOR && token->type != TYPE_IDENTIFIER) {
+                printf("ERROR: Unexpected token after element separator! ");
+                return;
+            }
+            if(prev_type == TYPE_IDENTIFIER && strcmp(token->value, "|") == 0){
+                prev_type = TYPE_SEPARATOR;
+                continue;
+            }
+            prev_type = TYPE_IDENTIFIER;
+            Token peek = {0};
+            if(peek_next_token(lexer, &peek) && strcmp(peek.value, "=")==0 ){
+                mode_class_property = 1;
+            }
+
+            if(mode_class_property){
+                //handle properties
+                if (class_flag) {
+                    fwrite("\"",sizeof(char), 1, output);
+                }
+                printf("TODO: handle properties");
+            }else {
+                //handle class names
+                if(class_flag == 0) { 
+                    fwrite(" class=\"",sizeof(char), 8, output);
+                    class_flag = 1;
+                }
+                else
+                    fwrite(",",sizeof(char), 1, output);
+                fwrite(token->value,sizeof(char), strlen(token->value), output);
+            }
+            
+        }
+        if (class_flag && mode_class_property == 0) {
+            fwrite("\"",sizeof(char), 1, output);
+        }
+        if(strcmp(token->value, "]") == 0) {
+
+            fwrite(">\n",sizeof(char), 2, output);
+            return;
+        }
+    }
+}
+
 int main() {
     const char* input_file = "./text.txt";
     const char* output_file = "./out.html";
@@ -312,9 +422,7 @@ int main() {
     fwrite("<head>\n",sizeof(char), 7, output);
     fwrite("<meta charset=\"UTF-8\">\n",sizeof(char), 23, output);
     fwrite("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n",sizeof(char), 71, output);
-    // TODO handle title
-    fwrite("</head>\n",sizeof(char), 8, output);
-    fwrite("<body>\n",sizeof(char), 7, output);
+
     
     DocElmProperties default_prop = {
         .font_size = 12
@@ -327,59 +435,31 @@ int main() {
     Token token = {0};
     // lexer.sb = &sb;
     int span_count = 0;
-    while(get_next_token2(&lexer, &token)){
+    handle_title(&lexer, &token, output);
+
+    fwrite("</head>\n",sizeof(char), 8, output);
+    fwrite("<body>\n",sizeof(char), 7, output);
+
+    while(get_next_token(&lexer, &token)){
         printf("token: %s | type: %s | loc: %zu\n", token.value, token.type > TYPE_COUNT ? "UNKNOWN": token_type_strings[token.type], lexer.loc);
 
-        if(token.type == 99){
-            //round up spaces count to left margin to multiple of NESTING+1, 4 here, 
-            //done to be less strict on amount of space is considered a nesting level
-            //when there is 1,2,3,4 space it is considered 4
-            //              5,6,7,8 is 8 and so on 
-            char tmp[50];
-            size_t dist = get_left_nesting_distance(&lexer);
-            NestingElement* parent = stack_peek(&stack);
-            if(parent == NULL) continue;
-            if(dist == NESTING_IGNORED) {
-                fwrite("<" , sizeof(char), 1, output);
-                fwrite(token.value, sizeof(char), strlen(token.value), output);
-                continue;
-            }
-            if(parent->level > dist){
-                while (parent->level > dist)
-                {
-                    snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
-                    fwrite(tmp, sizeof(char), strlen(tmp), output);
+        switch (token.type) {
+            case TYPE_PUNCT:
+                if (strcmp(token.value, "#[") == 0) {
 
-                    stack_pop(&stack);
-                    parent = stack_peek(&stack);
+                    handle_element(&lexer, &token, output);
+ 
                 }
-                //TODO gen close parent
-                snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
-                fwrite(tmp, sizeof(char), strlen(tmp), output);
-
-                //TODO gen open current
-                fwrite("<" , sizeof(char), 1, output);
-                fwrite(token.value, sizeof(char), strlen(token.value), output);
-                stack_push(&stack, token.value, dist);
-                continue;
-            }
-            if(parent->level < dist){
-                
-                //TODO gen open current
-                fwrite("<" , sizeof(char), 1, output);
-                fwrite(token.value, sizeof(char), strlen(token.value), output);
-                stack_push(&stack, token.value, dist);
-                continue;
-            }else{
-                //TODO close parent
-                snprintf(tmp, strlen(token.value)+3, "</%s>", token.value);
-                fwrite(tmp, sizeof(char), strlen(tmp), output);
-                //TODO open current
-                fwrite("<" , sizeof(char), 1, output);
-                fwrite(token.value, sizeof(char), strlen(token.value), output);
-                stack_push(&stack, token.value, dist);
-            }
+                else if (strcmp(token.value, "@(") == 0) {
+                    // handle_spanstyle();
+                }
+            break;
+            case TYPE_IDENTIFIER:
+                fwrite(token.value ,sizeof(char), strlen(token.value), output);
+            break;
+            default:break;
         }
+        
             
         
 
