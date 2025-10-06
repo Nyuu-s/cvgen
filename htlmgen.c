@@ -14,7 +14,7 @@ do{\
 } while (0);
 
 #define INITIAL_STACK_CAPACITY 100
-#define NESTING_THRESHOLD 3
+#define NESTING_THRESHOLD 4
 #define NESTING_IGNORED 1
 
 typedef struct DocElmProperties
@@ -35,6 +35,7 @@ typedef struct Token
         } sb;
     };
     char type;
+    size_t nesting_level;
     
 } Token;
 
@@ -122,8 +123,9 @@ int is_control_char(char c){
 
 size_t get_left_nesting_distance(Lexer* lexer){
 
-    size_t cursor = lexer->loc;
-    char is_left_blank = 0;
+    size_t cursor = lexer->loc >= 2 ? lexer->loc-2 : 0;
+    // printf("cur: %zu, loc:%zu, char_cur: %c, char_loc: %c\n", cursor, lexer->loc, lexer->content[cursor], lexer->content[lexer->loc]);
+    char is_left_blank = 1;
     while(cursor != 0  )
     {
         cursor--;
@@ -135,10 +137,11 @@ size_t get_left_nesting_distance(Lexer* lexer){
             // printf("is blank %d\n", is_left_blank);
             break;
         }
+        
     }
 
-    size_t res = ((lexer->loc - cursor) + NESTING_THRESHOLD) & ~NESTING_THRESHOLD;
-    return is_left_blank ? res : NESTING_IGNORED;
+    size_t res = (((lexer->loc-2) - cursor) + (NESTING_THRESHOLD-1)) & ~(NESTING_THRESHOLD-1);
+    return is_left_blank ? res/NESTING_THRESHOLD : NESTING_IGNORED;
 
 }
 char lexer_read_char(Lexer* lexer){
@@ -179,6 +182,7 @@ int get_next_token(Lexer* lexer, Token* token){
             sb_add(token->sb, '#');
             sb_add(token->sb, currchar);
             token->sb.data[token->sb.count] = '\0';
+            token->nesting_level = get_left_nesting_distance(lexer);
             return 1;
         }
         if(currchar == '@' && lexer_peek_char(lexer) == '('){
@@ -264,12 +268,14 @@ NestingElement stack_pop(NestingStack* stack){
     return top_elem;
 }
 
-NestingElement* stack_peek(NestingStack* stack){
+int stack_peek(NestingStack* stack, NestingElement* element){
     if (stack->top != -1)
     {
-        return &stack->elements[stack->top];
+        element = &(stack->elements[stack->top]);
+        return 1;
+
     }
-    return NULL;
+    return 0;
 }
 
 int lexer_register_punctuation(Lexer* lexer, const char** strarr, size_t amount){
@@ -483,7 +489,7 @@ int main() {
 
     NestingStack stack = {0};
     stack_init(&stack, INITIAL_STACK_CAPACITY);
-
+    NestingElement top_element = {0};
     // StringBuilder sb = {0};
     Token token = {0};
     // lexer.sb = &sb;
@@ -499,7 +505,66 @@ int main() {
         switch (token.type) {
             case TYPE_PUNCT:
                 if (strcmp(token.value, "#[") == 0) {
-                    handle_element(&lexer, &token, output);
+                    printf("%zu\n",token.nesting_level);
+                    if(!stack_peek(&stack, &top_element)){
+
+                        printf("ROOT LEVEL\n");
+                        stack_push(&stack, token.value, token.nesting_level);
+                        printf("pushed (%s,%zu)\n", token.value, token.nesting_level);
+                        handle_element(&lexer, &token, output);
+                    }
+                    else if(token.nesting_level > top_element.level){
+
+                        printf("DEEPER\n");
+                        stack_push(&stack, token.value, token.nesting_level);
+                        printf("pushed (%s,%zu)\n", token.value, token.nesting_level);
+                        stack_peek(&stack, &top_element);
+
+                        printf("pushed (%s,%zu)\n", top_element.name, top_element.level);
+                        fwrite("\n",sizeof(char), 1, output);
+                        handle_element(&lexer, &token, output);
+                    } else if(token.nesting_level == top_element.level){
+
+                        printf("SIBLING\n");
+                        //close sibling
+                        fwrite("</", sizeof(char), 2, output);
+                        fwrite(top_element.name, sizeof(char), strlen(top_element.name), output);
+                        fwrite(">\n", sizeof(char), 2, output);
+                        // remove sibling from stack
+                        // add current to stack
+                        // refresh top_elment with current
+                        stack_pop(&stack);
+                        stack_push(&stack, token.value, token.nesting_level);
+
+                        printf("pushed (%s,%zu)\n", token.value, token.nesting_level);
+                        stack_peek(&stack, &top_element);
+                        //open current
+                        handle_element(&lexer, &token, output);
+                    } else {
+
+                        printf("SHALLOWER\n");
+                        char at_end = 0;
+                        while (!at_end && token.nesting_level < top_element.level) {
+                            fwrite("</", sizeof(char), 2, output);
+                            fwrite(top_element.name, sizeof(char), strlen(top_element.name), output);
+                            fwrite(">\n", sizeof(char), 2, output);
+                            stack_pop(&stack);
+                            at_end = !stack_peek(&stack, &top_element);
+                        }
+                        if(at_end){
+                            printf("ERROR: Root level should be 0, got %zu", top_element.level);
+                            return 0;
+                        }
+                        fwrite("</", sizeof(char), 2, output);
+                        fwrite(top_element.name, sizeof(char), strlen(top_element.name), output);
+                        fwrite(">\n", sizeof(char), 2, output);
+                        stack_pop(&stack);
+                        stack_push(&stack, token.value, token.nesting_level);
+
+                        printf("pushed (%s,%zu):\n", token.value, token.nesting_level);
+                        stack_peek(&stack, &top_element);
+                        handle_element(&lexer, &token, output);
+                    }
                 }
                 else if (strcmp(token.value, "@(") == 0) {
                     handle_spanstyle(&lexer, &token, output);
