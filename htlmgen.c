@@ -62,17 +62,7 @@ typedef struct Lexer
     size_t loc;
     size_t line;
     FILE* fd;
-    // StringBuilder* sb;
 } Lexer;
-
-// #define TOKEN_START_ELEM "#["
-// #define TOKEN_END_ELEM "]"
-// #define TOKEN_START_SPANSTYLE "@("
-// #define TOKEN_END_SPANSTYLE ")"
-// #define TOKEN_ELEM_CLASSSEP "|"
-// #define TOKEN_SPANSTYLE_CLASSSEP "+"
-// #define TOKEN_SPANSTYLE_CLASSEND ":"
-// #define TOKEN_ELEM_ATTR "="
 
 typedef struct ParserState{
     int state;
@@ -97,10 +87,9 @@ const char* token_type_strings[] = {
     "IDENTIFIER"
     
 };
+
 int get_next_token(Lexer* lexer, Token* token);
 int peek_next_token(Lexer* lexer, Token* token);
-
-
 
 size_t get_file_size(FILE* fd){
     if(!fd) return 0;
@@ -333,6 +322,9 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
         printf("ERROR: Expected identifier for element name!");
         return;
     }
+    if(strcmp(token->value, "ulist") == 0 || strcmp(token->value, "olist") == 0){
+        token->value[2] = '\0';
+    }
 
     if(!stack_peek(stack, top_element)){
         printf("ROOT LEVEL\n");
@@ -390,8 +382,11 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
 
 
 
+ 
     fwrite("<",sizeof(char), 1, output);
     fwrite(token->value,sizeof(char), strlen(token->value), output);
+    
+
     if(!get_next_token(lexer, token)) {
         printf("ERROR: reached EOF before end of element! ");
         return;
@@ -571,8 +566,26 @@ int main() {
                 }
             break;
             case TYPE_IDENTIFIER:
-                fwrite(token.value ,sizeof(char), strlen(token.value), output);
-                fwrite(" " ,sizeof(char), 1, output);
+                stack_peek(&stack, &top_element);
+                if(strcmp(top_element.name, "ul") == 0 || strcmp(top_element.name, "ol") == 0 || strcmp(top_element.name, "li") == 0){
+                    if(token.value[0] == '-'){
+                        if(strcmp(top_element.name, "li") == 0){
+                            stack_pop(&stack);
+                            fwrite("</li>\n" ,sizeof(char), 6, output);
+                        }
+                        fwrite("<li>" ,sizeof(char), 4, output);
+                        stack_push(&stack, "li", top_element.level+1);
+                    
+                    }
+                    else {
+                        fwrite(token.value ,sizeof(char), strlen(token.value), output);
+                        fwrite(" " ,sizeof(char), 1, output);
+                    }
+                }
+                else {
+                    fwrite(token.value ,sizeof(char), strlen(token.value), output);
+                    fwrite(" " ,sizeof(char), 1, output);
+                }
 
             break;
             default:break;

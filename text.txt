@@ -1,3 +1,6 @@
-#[ghgfj] my title
-    #[section] test
-#[section2] wow
+#[title] my title
+#[section] test
+    #[olist]
+    - @(listyle:ye cette ligne est dans le style du li)
+    - un truc simple
+        
