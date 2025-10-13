@@ -165,6 +165,32 @@ int get_next_token(Lexer* lexer, Token* token){
             currchar = lexer_read_char(lexer);
         }
 
+        if(currchar == '"'){
+            char cnt = 1;
+            sb_add(token->sb, currchar);
+            char skip = 0;
+            while (lexer->loc <= lexer->input_size && currchar != EOF && !skip) {
+                currchar = lexer_read_char(lexer);
+                if (!skip && currchar == '\\') {
+                    skip = 1;
+                    continue;
+                }
+                skip = 0;
+                sb_add(token->sb, currchar)
+                if(currchar == '"') {
+                    cnt++;
+                    break;
+                }
+            }
+            if (cnt == 2) {
+                return 1;
+            }
+            else {
+                printf("ERROR: Lexer trying to read a string literal with no end !");
+                exit(1);
+            }
+        }
+
         if(currchar == '#' && lexer_peek_char(lexer) == '['){
             currchar = lexer_read_char(lexer);
             token->type = TYPE_PUNCT;
@@ -314,6 +340,7 @@ void handle_title(Lexer* lexer, Token* token, FILE* output){
 }
 
 void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElement* top_element, FILE* output){
+    char self_closing = 0;
     if(!get_next_token(lexer, token)) {
         printf("ERROR: reached EOF before end of element! ");
         return;
@@ -422,6 +449,7 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
 
             if(mode_class_property){
                 //handle properties
+                fwrite(" ",sizeof(char), 1, output);
                 if (class_flag) {
                     fwrite("\" ",sizeof(char), 2, output);
                 }
