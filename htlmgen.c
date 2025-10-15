@@ -183,6 +183,8 @@ int get_next_token(Lexer* lexer, Token* token){
                 }
             }
             if (cnt == 2) {
+                token->type = TYPE_IDENTIFIER;
+                token->sb.data[token->sb.count] = '\0';
                 return 1;
             }
             else {
@@ -355,16 +357,15 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
 
     if(!stack_peek(stack, top_element)){
         printf("ROOT LEVEL\n");
-        stack_push(stack, token->value, token->nesting_level);
+        // stack_push(stack, token->value, token->nesting_level);
         printf("pushed (%s,%zu)\n", token->value, token->nesting_level);
     } else if(token->nesting_level > top_element->level){
 
         printf("DEEPER\n");
-        stack_push(stack, token->value, token->nesting_level);
-        printf("pushed (%s,%zu)\n", token->value, token->nesting_level);
-        stack_peek(stack, top_element);
+        // stack_push(stack, token->value, token->nesting_level);
+        // printf("pushed (%s,%zu)\n", token->value, token->nesting_level);
+        // stack_peek(stack, top_element);
 
-        printf("pushed (%s,%zu)\n", top_element->name, top_element->level);
         fwrite("\n",sizeof(char), 1, output);
     } else if(token->nesting_level == top_element->level){
 
@@ -374,14 +375,7 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
         fwrite(top_element->name, sizeof(char), strlen(top_element->name), output);
         fwrite(">\n", sizeof(char), 2, output);
         // remove sibling from stack
-        // add current to stack
-        // refresh top_elment with current
         stack_pop(stack);
-        stack_push(stack, token->value, token->nesting_level);
-
-        printf("pushed (%s,%zu)\n", token->value, token->nesting_level);
-        stack_peek(stack, top_element);
-        //open current
     } else {
 
         printf("SHALLOWER\n");
@@ -401,18 +395,19 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
         fwrite(top_element->name, sizeof(char), strlen(top_element->name), output);
         fwrite(">\n", sizeof(char), 2, output);
         stack_pop(stack);
-        stack_push(stack, token->value, token->nesting_level);
-
-        printf("pushed (%s,%zu):\n", token->value, token->nesting_level);
-        stack_peek(stack, top_element);
     }
-
-
-
+    // add current to stack
+    // refresh top_elment with current
+    stack_push(stack, token->value, token->nesting_level);
+    printf("pushed (%s,%zu):\n", token->value, token->nesting_level);
+    stack_peek(stack, top_element);
  
     fwrite("<",sizeof(char), 1, output);
     fwrite(token->value,sizeof(char), strlen(token->value), output);
-    
+    //check if tag is self closing 
+    if(strcmp(token->value, "img") == 0){
+        self_closing = 1;
+    }
 
     if(!get_next_token(lexer, token)) {
         printf("ERROR: reached EOF before end of element! ");
@@ -423,6 +418,11 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
         return;
     }
     if(strcmp(token->value, "]") == 0) {
+        if(self_closing){
+            fwrite("/>\n",sizeof(char), 3, output);
+            stack_pop(stack);
+            return;
+        }
         fwrite(">\n",sizeof(char), 2, output);
         return;
     }
@@ -480,7 +480,11 @@ void handle_element(Lexer* lexer, Token* token, NestingStack* stack, NestingElem
             fwrite("\"",sizeof(char), 1, output);
         }
         if(strcmp(token->value, "]") == 0) {
-
+            if(self_closing){
+                fwrite("/>\n",sizeof(char), 3, output);
+                stack_pop(stack);
+                return;
+            }
             fwrite(">\n",sizeof(char), 2, output);
             return;
         }

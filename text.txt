@@ -3,4 +3,5 @@
     #[olist]
     - @(listyle:ye cette ligne est dans le style du li)
     - un truc simple
-        
+#[img|url="https://img-cdn.hltv.org/gallerypicture/yH5n3orm3f60cID5G1s1IU.png?ixlib=java-2.1.0&w=500&s=93e3b77261ed8f97f7527304bcfb08fe"]
+        #[truc]
